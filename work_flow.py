@@ -153,7 +153,7 @@ def classify_by_exchange(stocks, all_data):
         "上交所": [],
         "深交所": [],
         "北交所": [],
-        "科创板": [],
+        "科创板/创业板": [],
     }
 
     stock_info = {row['代码']: row['名称'] for _, row in all_data.iterrows()}
@@ -166,12 +166,12 @@ def classify_by_exchange(stocks, all_data):
         # Classify based on stock code prefix
         if stock_code.startswith("60"):
             classified["上交所"].append(f"{stock_code} ({name})")
-        elif stock_code.startswith(("00", "30")):
+        elif stock_code.startswith("00"):
             classified["深交所"].append(f"{stock_code} ({name})")
         elif stock_code.startswith("8"):
             classified["北交所"].append(f"{stock_code} ({name})")
-        elif stock_code.startswith("68"):
-            classified["科创板"].append(f"{stock_code} ({name})")
+        elif stock_code.startswith(("688", "300")):
+            classified["科创板/创业板"].append(f"{stock_code} ({name})")
 
     return classified
 
