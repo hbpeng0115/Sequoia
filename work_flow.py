@@ -24,8 +24,8 @@ from strategy import (
 )
 
 
-# Retry-enabled session
 def get_retry_session():
+    """Create a requests session with retry logic for robust handling of network issues."""
     session = requests.Session()
     retries = Retry(
         total=5,
@@ -38,22 +38,25 @@ def get_retry_session():
 
 
 def fetch_data_with_retry():
-    """Fetch data with retry logic for robust handling of network issues."""
+    """Fetch stock data with retry logic."""
     session = get_retry_session()
     try:
-        return ak.stock_zh_a_spot_em()
+        return ak.stock_zh_a_spot_em()  # Fetch real-time stock data
     except Exception as e:
         logging.error(f"Failed to fetch data: {e}")
         raise
 
 
 def prepare():
+    """Initialize data processing and execute stock strategies."""
     logging.info("************************ process start ***************************************")
-    all_data = fetch_data_with_retry()
+    all_data = fetch_data_with_retry()  # Fetch all stock data
     subset = all_data[['代码', '名称']]
-    stocks = [tuple(x) for x in subset.values]
-    statistics(all_data, stocks)
+    stocks = [tuple(row) for row in subset.values]
 
+    statistics(all_data, stocks)  # Generate initial statistics
+
+    # Define trading strategies
     strategies = {
         '放量上涨': enter.check_volume,
         '均线多头': keep_increasing.check,
@@ -70,19 +73,20 @@ def prepare():
     if datetime.datetime.now().weekday() == 0:
         strategies['均线多头'] = keep_increasing.check
 
-    process(stocks, strategies)
+    process(stocks, strategies)  # Process stocks with strategies
     logging.info("************************ process end ***************************************")
 
 
 def process(stocks, strategies):
-    stocks_data = data_fetcher.run(stocks)
+    """Process stocks using defined strategies and analyze signals."""
+    stocks_data = data_fetcher.run(stocks)  # Fetch detailed stock data
     strategy_results = {strategy: check(stocks_data, strategy, func) for strategy, func in strategies.items()}
 
-    # Filter combination signals
-    analyze_signals(strategy_results)
+    analyze_signals(strategy_results)  # Analyze signals from strategies
 
 
 def analyze_signals(strategy_results):
+    """Analyze and classify stock signals from strategy results."""
     signals = {
         "强烈趋势信号": strong_trend_signal(strategy_results),
         "回调低吸信号": pullback_buy_signal(strategy_results),
@@ -91,13 +95,14 @@ def analyze_signals(strategy_results):
 
     for signal_name, stocks in signals.items():
         if stocks:
-            classified = classify_by_exchange([(code,) for code in stocks], all_data=fetch_data_with_retry())
+            classified = classify_by_exchange(stocks, all_data=fetch_data_with_retry())
             push.strategy(f"{signal_name}的股票分类：\n{classified}")
         else:
             push.strategy(f"{signal_name}的股票不存在。")
 
 
 def check(stocks_data, strategy, strategy_func):
+    """Check stocks against a specific strategy and return matching stocks."""
     end = settings.config['end_date']
     m_filter = check_enter(end_date=end, strategy_fun=strategy_func)
     results = dict(filter(m_filter, stocks_data.items()))
@@ -110,6 +115,8 @@ def check(stocks_data, strategy, strategy_func):
 
 
 def check_enter(end_date=None, strategy_fun=enter.check_volume):
+    """Create a filter function to check stock entry criteria."""
+
     def end_date_filter(stock_data):
         if end_date and end_date < stock_data[1].iloc[0].日期:
             logging.debug(f"{stock_data[0]}在{end_date}时还未上市")
@@ -120,24 +127,28 @@ def check_enter(end_date=None, strategy_fun=enter.check_volume):
 
 
 def strong_trend_signal(strategy_results):
+    """Identify stocks with strong trend signals."""
     return list(set(strategy_results.get('放量上涨', [])) &
                 set(strategy_results.get('均线多头', [])) &
                 set(strategy_results.get('突破平台', [])))
 
 
 def pullback_buy_signal(strategy_results):
+    """Identify stocks suitable for pullback buying."""
     return list(set(strategy_results.get('回踩年线', [])) &
                 set(strategy_results.get('均线多头', [])) &
                 set(strategy_results.get('无大幅回撤', [])))
 
 
 def short_term_breakout_signal(strategy_results):
+    """Identify stocks with short-term breakout opportunities."""
     return list(set(strategy_results.get('放量上涨', [])) &
                 set(strategy_results.get('停机坪', [])) &
                 set(strategy_results.get('高而窄的旗形', [])))
 
 
 def classify_by_exchange(stocks, all_data):
+    """Classify stocks by exchange based on their codes."""
     classified = {
         "上交所": [],
         "深交所": [],
@@ -147,14 +158,12 @@ def classify_by_exchange(stocks, all_data):
 
     stock_info = {row['代码']: row['名称'] for _, row in all_data.iterrows()}
 
-    for stock_tuple in stocks:
-        # If stock_tuple is a nested tuple, extract the inner tuple
-        if isinstance(stock_tuple, tuple) and len(stock_tuple) == 1 and isinstance(stock_tuple[0], tuple):
-            stock_tuple = stock_tuple[0]
-        # Unpack tuple safely
-        stock_code, _ = stock_tuple
-
+    for stock_code in stocks:
+        # Unpack the stock code safely
+        stock_code = stock_code[0] if isinstance(stock_code, tuple) else stock_code
         name = stock_info.get(stock_code, "未知名称")
+
+        # Classify based on stock code prefix
         if stock_code.startswith("60"):
             classified["上交所"].append(f"{stock_code} ({name})")
         elif stock_code.startswith(("00", "30")):
@@ -163,14 +172,18 @@ def classify_by_exchange(stocks, all_data):
             classified["北交所"].append(f"{stock_code} ({name})")
         elif stock_code.startswith("68"):
             classified["科创板"].append(f"{stock_code} ({name})")
+
     return classified
 
 
 def statistics(all_data, stocks):
-    limitup = len(all_data[all_data['涨跌幅'] >= 9.5])
-    limitdown = len(all_data[all_data['涨跌幅'] <= -9.5])
-    up5 = len(all_data[all_data['涨跌幅'] >= 5])
-    down5 = len(all_data[all_data['涨跌幅'] <= -5])
+    """Generate and push statistical data about stock performance."""
+    limitup = len(all_data[all_data['涨跌幅'] >= 9.5])  # Count limit up stocks
+    limitdown = len(all_data[all_data['涨跌幅'] <= -9.5])  # Count limit down stocks
+    up5 = len(all_data[all_data['涨跌幅'] >= 5])  # Count stocks with >5% increase
+    down5 = len(all_data[all_data['涨跌幅'] <= -5])  # Count stocks with < -5% decrease
 
-    msg = f"涨停数：{limitup}   跌停数：{limitdown}\n涨幅大于5%数：{up5}  跌幅大于5%数：{down5}"
-    push.statistics(msg)
+    # Prepare the statistics message
+    msg = (f"涨停数：{limitup}   跌停数：{limitdown}\n"
+           f"涨幅大于5%数：{up5}  跌幅大于5%数：{down5}")
+    push.statistics(msg)  # Push statistics message
